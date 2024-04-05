@@ -1,0 +1,29 @@
+{
+  "name": "poc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "android": "react-native run-android",
+    "start": "react-native start"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/henriqueinonhe/android-rn-poc.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/henriqueinonhe/android-rn-poc/issues"
+  },
+  "homepage": "https://github.com/henriqueinonhe/android-rn-poc#readme",
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.73.6"
+  },
+  "devDependencies": {
+    "prettier": "3.2.5",
+    "@react-native/metro-config": "0.73.5"
+  }
+}
