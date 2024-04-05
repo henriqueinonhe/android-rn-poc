@@ -1,11 +1,14 @@
 package com.example.poc
 
+import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.util.Log
+import android.provider.Settings
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,7 +33,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.poc.ui.theme.PoCTheme
-import kotlin.contracts.ContractBuilder
+import com.facebook.hermes.reactexecutor.HermesExecutorFactory
+import com.facebook.react.BuildConfig
+import com.facebook.react.ReactInstanceManager
+import com.facebook.react.ReactPackage
+import com.facebook.react.ReactRootView
+import com.facebook.react.PackageList
+import com.facebook.react.common.LifecycleState
+import com.facebook.react.modules.core.DefaultHardwareBackBtnHandler
+import com.facebook.soloader.SoLoader
 
 class NotesStore(initialNotes: List<Note>) {
     var notes = initialNotes
@@ -58,8 +69,22 @@ class NotesStore(initialNotes: List<Note>) {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val OVERLAY_PERMISSION_REQ_CODE = 1  // Choose any value
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package: $packageName")
+                )
+                startActivityForResult(intent, OVERLAY_PERMISSION_REQ_CODE)
+            }
+        }
 
         val initialNotes = listOf<Note>(
             Note(id = "1", title = "First note", text = "First note text"),
@@ -72,32 +97,33 @@ class MainActivity : ComponentActivity() {
         val selectedNoteActivityLauncher =
             registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
                 val intent = it.data
-                val extras = intent!!.extras!!
+                val extras = intent?.extras
 
-                val event = extras.getString("event")!!
+                val event = extras?.getString("event")
 
-                when(event) {
+                when (event) {
                     "CLOSED" -> return@registerForActivityResult
                     "NOTE_UPDATED" -> {
-                    val updatedNote = Note(
-                        id = extras.getString("id")!!,
-                        title = extras.getString("title")!!,
-                        text = extras.getString("text")!!,
-                    )
+                        val updatedNote = Note(
+                            id = extras.getString("id")!!,
+                            title = extras.getString("title")!!,
+                            text = extras.getString("text")!!,
+                        )
 
-                    val updatedNotes = notesStore.notes.map {note ->
-                        if (note.id == updatedNote.id) updatedNote else note
+                        val updatedNotes = notesStore.notes.map { note ->
+                            if (note.id == updatedNote.id) updatedNote else note
+                        }
+
+                        notesStore.notes = updatedNotes
                     }
 
-                    notesStore.notes = updatedNotes
-                    }
                     else -> return@registerForActivityResult
                 }
             }
 
         setContent {
             DisplayNotes(notesStore, onSelectNote = { it ->
-                val intent = Intent(this, SelectedNoteActivity::class.java)
+                val intent = Intent(this, MyReactActivity::class.java)
                 intent.putExtra("id", it.id)
                 intent.putExtra("title", it.title)
                 intent.putExtra("text", it.text)
@@ -146,7 +172,6 @@ fun DisplayNotes(
     }
 }
 
-data class Note(val id: String, val title: String, val text: String)
 
 class SelectedNoteActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -216,5 +241,79 @@ fun SelectedNote(note: Note, onClose: () -> Unit, onUpdate: (updateNote: Note) -
                 Text(text = "Save")
             }
         }
+    }
+}
+
+class MyReactActivity : Activity(), DefaultHardwareBackBtnHandler {
+    private lateinit var reactRootView: ReactRootView
+    private lateinit var reactInstanceManager: ReactInstanceManager
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val extras = intent.extras
+
+        SoLoader.init(this, false)
+        reactRootView = ReactRootView(this)
+        val packages: List<ReactPackage> = PackageList(application).packages.apply {
+            add(AppPackage())
+        }
+        // Packages that cannot be autolinked yet can be added manually here, for example:
+        // packages.add(MyReactNativePackage())
+        // Remember to include them in `settings.gradle` and `app/build.gradle` too.
+        reactInstanceManager =
+            ReactInstanceManager.builder().setJavaScriptExecutorFactory(HermesExecutorFactory())
+                .setApplication(application).setCurrentActivity(this)
+                .setBundleAssetName("index.android.bundle").setJSMainModulePath("index")
+                .addPackages(packages).setUseDeveloperSupport(BuildConfig.DEBUG)
+                .setInitialLifecycleState(LifecycleState.RESUMED).build()
+        // The string here (e.g. "MyReactNativeApp") has to match
+        // the string in AppRegistry.registerComponent() in index.js
+        reactRootView?.startReactApplication(reactInstanceManager, "MyReactNativeApp", extras)
+
+        setContentView(reactRootView)
+    }
+
+    override fun invokeDefaultOnBackPressed() {
+        super.onBackPressed()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        reactInstanceManager.onHostPause(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reactInstanceManager.onHostResume(this, this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        reactInstanceManager.onHostDestroy(this)
+        reactRootView.unmountReactApplication()
+    }
+
+    override fun onBackPressed() {
+        reactInstanceManager.onBackPressed()
+        super.onBackPressed()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == MainActivity.OVERLAY_PERMISSION_REQ_CODE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!Settings.canDrawOverlays(this)) {
+                    // SYSTEM_ALERT_WINDOW permission not granted
+                }
+            }
+        }
+        reactInstanceManager?.onActivityResult(this, requestCode, resultCode, data)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MENU && reactInstanceManager != null) {
+            reactInstanceManager.showDevOptionsDialog()
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 }
